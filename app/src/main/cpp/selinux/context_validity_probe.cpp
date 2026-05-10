@@ -312,15 +312,15 @@ namespace duckdetector::selinux {
 
         if (ksu_domain_result.valid.has_value() || ksu_file_result.valid.has_value() || magisk_file_result.valid.has_value()) {
 
-            if (ksu_domain_result.valid) {
+            if (ksu_domain_result.valid.value()) {
                 append_note(snapshot, "u:r:ksu:s0 was found by live policy.");
             }
 
-            if (ksu_file_result.valid) {
+            if (ksu_file_result.valid.value()) {
                 append_note(snapshot, "u:object_r:ksu_file:s0 was found by live policy.");
             }
 
-            if (magisk_file_result.valid) {
+            if (magisk_file_result.valid.value()) {
                 append_note(snapshot, "u:object_r:magisk_file:s0 was found by live policy.");
             }
             return snapshot;
