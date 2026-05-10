@@ -30,7 +30,7 @@ data class SelinuxContextValiditySnapshot(
     val queryMethod: String = "",
     val ksuDomainValid: Boolean? = null,
     val ksuFileValid: Boolean? = null,
-    val bitPair: String? = null,
+    val magiskFileValid: Boolean? = null,
     val failureReason: String? = null,
     val notes: List<String> = emptyList(),
 )

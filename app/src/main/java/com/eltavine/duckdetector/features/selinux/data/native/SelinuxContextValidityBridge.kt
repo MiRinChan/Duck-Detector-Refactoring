@@ -13,20 +13,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.eltavine.duckdetector.features.selinux.data.native
 
 open class SelinuxContextValidityBridge {
 
     open fun collectSnapshot(): SelinuxContextValiditySnapshot {
-        if (!nativeLoaded) {
-            return SelinuxContextValiditySnapshot(
-                failureReason = "duckdetector native library unavailable.",
-            )
-        }
+        val rawData = preloadedRawData ?: return SelinuxContextValiditySnapshot(
+            failureReason = "No preloaded data available. Check AppZygotePreload status.",
+        )
+
         return runCatching {
-            parse(nativeCollectContextValiditySnapshot())
-        }.getOrDefault(SelinuxContextValiditySnapshot())
+            parse(rawData)
+        }.getOrElse {
+            SelinuxContextValiditySnapshot(failureReason = "Parse error: ${it.message}")
+        }
     }
 
     internal fun parse(raw: String): SelinuxContextValiditySnapshot {
@@ -74,20 +74,16 @@ open class SelinuxContextValidityBridge {
             "QUERY_METHOD" -> copy(queryMethod = value.decodeValue())
             "KSU_DOMAIN_VALID" -> copy(ksuDomainValid = value.asNullableBool())
             "KSU_FILE_VALID" -> copy(ksuFileValid = value.asNullableBool())
-            "BIT_PAIR" -> copy(bitPair = value.decodeValue())
+            "MAGISK_FILE_VALID" -> copy(magiskFileValid = value.asNullableBool())
             "FAILURE_REASON" -> copy(failureReason = value.decodeValue())
             else -> this
         }
     }
 
-    private fun String.asBool(): Boolean {
-        return this == "1" || equals("true", ignoreCase = true)
-    }
+    private fun String.asBool(): Boolean = this == "1" || equals("true", ignoreCase = true)
 
     private fun String.asNullableBool(): Boolean? {
-        if (isBlank() || equals("unknown", ignoreCase = true)) {
-            return null
-        }
+        if (isBlank() || equals("unknown", ignoreCase = true)) return null
         return asBool()
     }
 
@@ -98,29 +94,10 @@ open class SelinuxContextValidityBridge {
                 val current = this@decodeValue[index]
                 if (current == '\\' && index + 1 < this@decodeValue.length) {
                     when (this@decodeValue[index + 1]) {
-                        'n' -> {
-                            append('\n')
-                            index += 2
-                            continue
-                        }
-
-                        'r' -> {
-                            append('\r')
-                            index += 2
-                            continue
-                        }
-
-                        't' -> {
-                            append('\t')
-                            index += 2
-                            continue
-                        }
-
-                        '\\' -> {
-                            append('\\')
-                            index += 2
-                            continue
-                        }
+                        'n' -> { append('\n'); index += 2; continue }
+                        'r' -> { append('\r'); index += 2; continue }
+                        't' -> { append('\t'); index += 2; continue }
+                        '\\' -> { append('\\'); index += 2; continue }
                     }
                 }
                 append(current)
@@ -129,9 +106,20 @@ open class SelinuxContextValidityBridge {
         }
     }
 
-    private external fun nativeCollectContextValiditySnapshot(): String
-
     companion object {
-        private val nativeLoaded = runCatching { System.loadLibrary("duckdetector") }.isSuccess
+        @Volatile
+        private var preloadedRawData: String? = null
+
+        @JvmStatic
+        fun setPreloadedRawData(data: String) {
+            preloadedRawData = data
+        }
+
+        val isNativeLibraryLoaded: Boolean by lazy {
+            runCatching { System.loadLibrary("duckdetector") }.isSuccess
+        }
+
+        @JvmStatic
+        external fun nativeCollectContextValiditySnapshot(): String
     }
 }

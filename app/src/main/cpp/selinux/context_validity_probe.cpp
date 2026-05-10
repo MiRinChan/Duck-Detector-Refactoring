@@ -21,6 +21,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <fstream>
+#include <cstring>
 #include <string>
 #include <utility>
 #include <unistd.h>
@@ -33,6 +34,7 @@ namespace duckdetector::selinux {
         constexpr const char *kExpectedCarrierType = "app_zygote";
         constexpr const char *kKsuContext = "u:r:ksu:s0";
         constexpr const char *kKsuFileContext = "u:object_r:ksu_file:s0";
+        constexpr const char *magiskFileContext = "u:object_r:magisk_file:s0";
         constexpr const char *kNegativeControlContext = "u:r:duckdetector_context_oracle_sentinel:s0";
         constexpr const char *kStockFileControlContext = "u:object_r:system_data_file:s0";
         constexpr const char *kNegativeFileControlContext =
@@ -92,6 +94,7 @@ namespace duckdetector::selinux {
 
         void append_note(ContextValidityProbeSnapshot &snapshot, std::string note) {
             if (!note.empty()) {
+                note += '\n';
                 snapshot.notes.push_back(std::move(note));
             }
         }
@@ -174,15 +177,8 @@ namespace duckdetector::selinux {
 
             int fd = open(kSelinuxContextPath, O_RDWR | O_CLOEXEC);
             if (fd < 0) {
-                const int error = errno;
-                if (error == EINVAL) {
-                    result.valid = false;
-                    result.note = std::string("Invalid context: ") + context +
-                                  " errno=" + std::to_string(error);
-                } else {
-                    result.note = std::string("Unavailable: ") + context +
-                                  " errno=" + std::to_string(error);
-                }
+                result.valid = false;
+                result.note = std::string("Unavailable: ") + context + " errno=" + strerror(errno);
                 return result;
             }
 
@@ -195,14 +191,8 @@ namespace duckdetector::selinux {
                 return result;
             }
 
-            if (error == EINVAL) {
-                result.valid = false;
-                result.note = std::string("Invalid context: ") + context +
-                              " errno=" + std::to_string(error);
-            } else {
-                result.note = std::string("Unavailable: ") + context +
-                              " errno=" + std::to_string(error);
-            }
+            result.valid = false;
+            result.note = std::string("Unavailable: ") + context + " errno=" + strerror(errno);
             return result;
         }
 
@@ -288,15 +278,19 @@ namespace duckdetector::selinux {
         const ContextCheckResult domain_second = check_context_validity(kKsuContext);
         const ContextCheckResult file_first = check_context_validity(kKsuFileContext);
         const ContextCheckResult file_second = check_context_validity(kKsuFileContext);
+        const ContextCheckResult magisk_file_first = check_context_validity(magiskFileContext);
+        const ContextCheckResult magisk_file_second = check_context_validity(magiskFileContext);
 
         const bool domain_stable = stable_result(domain_first, domain_second);
         const bool file_stable = stable_result(file_first, file_second);
         snapshot.ksu_results_stable = domain_stable && file_stable;
 
-        append_repeat_note(snapshot, "Domain repeat 1", domain_first);
-        append_repeat_note(snapshot, "Domain repeat 2", domain_second);
-        append_repeat_note(snapshot, "File repeat 1", file_first);
-        append_repeat_note(snapshot, "File repeat 2", file_second);
+        append_repeat_note(snapshot, "u:r:ksu:s0 test repeat 1", domain_first);
+        append_repeat_note(snapshot, "u:r:ksu:s0 test repeat 2", domain_second);
+        append_repeat_note(snapshot, "u:object_r:ksu_file:s0 test repeat 1", file_first);
+        append_repeat_note(snapshot, "u:object_r:ksu_file:s0 repeat 2", file_second);
+        append_repeat_note(snapshot, "u:object_r:magisk_file:s0 repeat 1", magisk_file_first);
+        append_repeat_note(snapshot, "u:object_r:magisk_file:s0 repeat 2", magisk_file_second);
 
         if (!snapshot.ksu_results_stable) {
             snapshot.failure_reason = "Context validity oracle repeatability failed.";
@@ -305,33 +299,34 @@ namespace duckdetector::selinux {
             return snapshot;
         }
 
-        const ContextCheckResult domain_result = domain_first;
-        const ContextCheckResult file_result = file_first;
+        const ContextCheckResult& ksu_domain_result = domain_first;
+        const ContextCheckResult& ksu_file_result = file_first;
+        const ContextCheckResult& magisk_file_result = magisk_file_first;
 
-        snapshot.ksu_domain_valid = domain_result.valid;
-        snapshot.ksu_file_valid = file_result.valid;
-        append_note(snapshot, domain_result.note);
-        append_note(snapshot, file_result.note);
+        snapshot.ksu_domain_valid = ksu_domain_result.valid;
+        snapshot.ksu_file_valid = ksu_file_result.valid;
+        snapshot.magisk_file_valid = magisk_file_result.valid;
+        append_note(snapshot, ksu_domain_result.note);
+        append_note(snapshot, ksu_file_result.note);
+        append_note(snapshot, magisk_file_result.note);
 
-        if (domain_result.valid.has_value() && file_result.valid.has_value()) {
-            snapshot.bit_pair.push_back(*domain_result.valid ? '1' : '0');
-            snapshot.bit_pair.push_back(*file_result.valid ? '1' : '0');
-            if (*domain_result.valid && *file_result.valid) {
-                append_note(snapshot, "Both KSU-specific contexts were accepted by live policy.");
-            } else if (!*domain_result.valid && !*file_result.valid) {
-                append_note(snapshot, "Neither KSU-specific context was accepted by live policy.");
-            } else {
-                append_note(snapshot,
-                            "Split verdict: one KSU-specific context was accepted while the other was not.");
+        if (ksu_domain_result.valid.has_value() || ksu_file_result.valid.has_value() || magisk_file_result.valid.has_value()) {
+
+            if (ksu_domain_result.valid) {
+                append_note(snapshot, "u:r:ksu:s0 was found by live policy.");
+            }
+
+            if (ksu_file_result.valid) {
+                append_note(snapshot, "u:object_r:ksu_file:s0 was found by live policy.");
+            }
+
+            if (magisk_file_result.valid) {
+                append_note(snapshot, "u:object_r:magisk_file:s0 was found by live policy.");
             }
             return snapshot;
         }
 
         snapshot.failure_reason = "Context validity probe could not complete both checks.";
-        if (!domain_result.valid.has_value() || !file_result.valid.has_value()) {
-            append_note(snapshot,
-                        "At least one KSU context write was unavailable from the current carrier.");
-        }
         return snapshot;
     }
 

@@ -56,8 +56,8 @@ internal object SelinuxContextValidityPayloadCodec {
             snapshot.ksuFileValid?.let {
                 append("KSU_FILE_VALID=").append(if (it) '1' else '0').append('\n')
             }
-            snapshot.bitPair?.takeIf { it.isNotEmpty() }?.let {
-                append("BIT_PAIR=").append(escapeValue(it)).append('\n')
+            snapshot.magiskFileValid?.let {
+                append("MAGISK_FILE_VALID=").append(if (it) '1' else '0').append('\n')
             }
             snapshot.failureReason?.takeIf { it.isNotEmpty() }?.let {
                 append("FAILURE_REASON=").append(escapeValue(it)).append('\n')

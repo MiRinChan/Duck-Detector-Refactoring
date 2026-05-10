@@ -286,60 +286,43 @@ class SelinuxRepository(
         result: SelinuxContextValidityProbeResult,
     ): SelinuxCheckResult {
         val status = when (result.state) {
-            SelinuxContextValidityState.CLEAN -> SelinuxContextValidityProbe.BITPAIR_CLEAN
-            SelinuxContextValidityState.KSU_PRESENT -> SelinuxContextValidityProbe.BITPAIR_KSU_PRESENT
-            SelinuxContextValidityState.AMBIGUOUS -> SelinuxContextValidityProbe.BITPAIR_AMBIGUOUS
-            SelinuxContextValidityState.INCONSISTENT -> SelinuxContextValidityProbe.BITPAIR_SELF_TEST_FAILED
-            SelinuxContextValidityState.UNAVAILABLE -> SelinuxContextValidityProbe.BITPAIR_UNSUPPORTED
+            SelinuxContextValidityState.CLEAN -> "No Root Selinux Context found"
+            SelinuxContextValidityState.ROOT_PRESENT -> "Root Selinux Context found"
         }
 
         val detail = buildList {
-            add("Carrier=${result.carrierContext ?: "<unreadable>"}")
-            add("Carrier match=${if (result.carrierMatchesExpected) "yes" else "no"}")
+            add("Carrier=${result.carrierContext ?: "<unreadable>"}\n")
+            add("Carrier match=${if (result.carrierMatchesExpected) "yes" else "no"}\n")
             add("Carrier control=${when (result.carrierControlValid) {
                 true -> "accepted"
                 false -> "rejected"
                 null -> "unavailable"
-            }}")
+            }}\n")
             add("Negative control=${when (result.negativeControlRejected) {
                 true -> "rejected"
                 false -> "accepted"
                 null -> "unavailable"
-            }}")
+            }}\n")
             add("File control=${when (result.fileControlValid) {
                 true -> "accepted"
                 false -> "rejected"
                 null -> "unavailable"
-            }}")
+            }}\n")
             add("File negative control=${when (result.fileNegativeControlRejected) {
                 true -> "rejected"
                 false -> "accepted"
                 null -> "unavailable"
-            }}")
-            add("Oracle trusted=${if (result.oracleControlsPassed) "yes" else "no"}")
-            add("Repeatability=${if (result.ksuResultsStable) "stable" else "unstable"}")
-            add("Query=${result.queryMethod.ifBlank { "raw selinuxfs write" }}")
+            }}\n")
+            add("Oracle trusted=${if (result.oracleControlsPassed) "yes" else "no"}\n")
+            add("Repeatability=${if (result.ksuResultsStable) "stable" else "unstable"}\n")
+            add("Query=${result.queryMethod.ifBlank { "raw selinuxfs write" }}\n")
             when (result.state) {
                 SelinuxContextValidityState.CLEAN ->
-                    add("Pair 00: both KSU-specific contexts were rejected by live policy.")
+                    add("Root contexts were not found by live policy.\n")
 
-                SelinuxContextValidityState.KSU_PRESENT ->
-                    add("Pair 11: both KSU-specific contexts were accepted by live policy.")
+                SelinuxContextValidityState.ROOT_PRESENT ->
+                    add("Root contexts were found by live policy.\n")
 
-                SelinuxContextValidityState.AMBIGUOUS ->
-                    add("Pair 01/10: one KSU-specific context validated while the other did not.")
-
-                SelinuxContextValidityState.INCONSISTENT ->
-                    add(
-                        if (result.oracleControlsPassed) {
-                            "KSU context repeatability failed, so the verdict was not trusted."
-                        } else {
-                            "Oracle self-test failed, so KSU context results were not trusted."
-                        },
-                    )
-
-                SelinuxContextValidityState.UNAVAILABLE ->
-                    add(result.failureReason ?: "Context validity oracle stayed unavailable.")
             }
             result.notes.forEach { note ->
                 add(note)
@@ -351,10 +334,7 @@ class SelinuxRepository(
             status = status,
             isSecure = when (result.state) {
                 SelinuxContextValidityState.CLEAN -> true
-                SelinuxContextValidityState.KSU_PRESENT -> false
-                SelinuxContextValidityState.AMBIGUOUS,
-                SelinuxContextValidityState.INCONSISTENT,
-                SelinuxContextValidityState.UNAVAILABLE -> null
+                SelinuxContextValidityState.ROOT_PRESENT -> false
             },
             permissionDenied = false,
             details = detail,

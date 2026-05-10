@@ -21,10 +21,7 @@ import com.eltavine.duckdetector.features.selinux.data.native.SelinuxContextVali
 
 enum class SelinuxContextValidityState {
     CLEAN,
-    KSU_PRESENT,
-    AMBIGUOUS,
-    INCONSISTENT,
-    UNAVAILABLE,
+    ROOT_PRESENT,
 }
 
 data class SelinuxContextValidityProbeResult(
@@ -42,7 +39,7 @@ data class SelinuxContextValidityProbeResult(
     val queryMethod: String,
     val ksuDomainValid: Boolean?,
     val ksuFileValid: Boolean?,
-    val bitPair: String?,
+    val magiskFileValid: Boolean?,
     val failureReason: String?,
     val notes: List<String>,
 )
@@ -61,33 +58,18 @@ class SelinuxContextValidityProbe(
 
     internal fun SelinuxContextValiditySnapshot.toProbeResult(): SelinuxContextValidityProbeResult {
         val state = when {
-            !available -> SelinuxContextValidityState.UNAVAILABLE
-            !carrierMatchesExpected -> SelinuxContextValidityState.UNAVAILABLE
-            !probeAttempted -> SelinuxContextValidityState.UNAVAILABLE
-            !oracleControlsPassed -> SelinuxContextValidityState.INCONSISTENT
-            !ksuResultsStable -> SelinuxContextValidityState.INCONSISTENT
-            ksuDomainValid == null || ksuFileValid == null -> SelinuxContextValidityState.UNAVAILABLE
-            ksuDomainValid && ksuFileValid -> SelinuxContextValidityState.KSU_PRESENT
-            !ksuDomainValid && !ksuFileValid -> SelinuxContextValidityState.CLEAN
-            else -> SelinuxContextValidityState.AMBIGUOUS
+            ksuDomainValid ?: false || ksuFileValid ?: false || magiskFileValid ?: false -> SelinuxContextValidityState.ROOT_PRESENT
+            else -> SelinuxContextValidityState.CLEAN
         }
 
         val notes = buildList {
             addAll(this@toProbeResult.notes)
             when (state) {
                 SelinuxContextValidityState.CLEAN ->
-                    add("Bit pair 00 means both KSU-specific contexts were rejected by live policy.")
+                    add("Root specific contexts were not found by live policy.")
 
-                SelinuxContextValidityState.KSU_PRESENT ->
-                    add("Bit pair 11 means both KSU-specific contexts were accepted by live policy.")
-
-                SelinuxContextValidityState.AMBIGUOUS ->
-                    add("Bit pair 01/10 means the KSU-specific contexts split across live policy checks.")
-
-                SelinuxContextValidityState.INCONSISTENT ->
-                    add("Oracle self-test failed, so the KSU-specific context verdict is not trusted.")
-
-                SelinuxContextValidityState.UNAVAILABLE -> Unit
+                SelinuxContextValidityState.ROOT_PRESENT ->
+                    add("Root contexts were found by live policy.")
             }
         }.distinct()
 
@@ -106,7 +88,7 @@ class SelinuxContextValidityProbe(
             queryMethod = queryMethod,
             ksuDomainValid = ksuDomainValid,
             ksuFileValid = ksuFileValid,
-            bitPair = bitPair,
+            magiskFileValid = magiskFileValid,
             failureReason = failureReason,
             notes = notes,
         )
@@ -114,10 +96,5 @@ class SelinuxContextValidityProbe(
 
     companion object {
         const val METHOD_LABEL = "Context validity oracle"
-        const val BITPAIR_CLEAN = "00"
-        const val BITPAIR_KSU_PRESENT = "11"
-        const val BITPAIR_AMBIGUOUS = "01/10"
-        const val BITPAIR_SELF_TEST_FAILED = "Self-test failed"
-        const val BITPAIR_UNSUPPORTED = "Unsupported"
     }
 }

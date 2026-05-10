@@ -88,8 +88,8 @@ namespace {
         if (snapshot.ksu_file_valid.has_value()) {
             output << "KSU_FILE_VALID=" << (*snapshot.ksu_file_valid ? '1' : '0') << '\n';
         }
-        if (!snapshot.bit_pair.empty()) {
-            output << "BIT_PAIR=" << escape_value(snapshot.bit_pair) << '\n';
+        if (snapshot.magisk_file_valid.has_value()) {
+            output << "MAGISK_FILE_VALID=" << (*snapshot.magisk_file_valid ? '1' : '0') << '\n';
         }
         if (!snapshot.failure_reason.empty()) {
             output << "FAILURE_REASON=" << escape_value(snapshot.failure_reason) << '\n';
@@ -112,8 +112,7 @@ namespace {
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_eltavine_duckdetector_features_selinux_data_native_SelinuxContextValidityBridge_nativeCollectContextValiditySnapshot(
         JNIEnv *env,
-        jobject
-) {
+        jclass clazz) {
     return to_jstring(
             env,
             encode_snapshot(duckdetector::selinux::collect_context_validity_snapshot())

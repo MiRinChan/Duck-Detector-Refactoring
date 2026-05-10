@@ -37,7 +37,7 @@ namespace duckdetector::selinux {
         std::string query_method;
         std::optional<bool> ksu_domain_valid;
         std::optional<bool> ksu_file_valid;
-        std::string bit_pair;
+        std::optional<bool> magisk_file_valid;
         std::string failure_reason;
         std::vector<std::string> notes;
     };

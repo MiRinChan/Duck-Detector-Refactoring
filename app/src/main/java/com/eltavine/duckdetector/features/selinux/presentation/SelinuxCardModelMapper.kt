@@ -72,26 +72,14 @@ class SelinuxCardModelMapper {
 
     private fun buildVerdict(report: SelinuxReport): String {
         val contextValidity = contextValidityResult(report)
-        val repeatabilityFailed =
-            contextValidity?.details?.contains("repeatability failed", ignoreCase = true) == true
         return when (report.stage) {
             SelinuxStage.LOADING -> "Scanning SELinux state"
             SelinuxStage.FAILED -> "SELinux scan failed"
             SelinuxStage.READY -> when (report.mode) {
                 SelinuxMode.ENFORCING -> when {
                     report.auditIntegrity?.state == SelinuxAuditIntegrityState.TAMPERED -> "Enforcing with audit rewrite"
-                    contextValidity?.status == SelinuxContextValidityProbe.BITPAIR_KSU_PRESENT ->
-                        "Enforcing with KSU context materialized"
-
-                    contextValidity?.status == SelinuxContextValidityProbe.BITPAIR_SELF_TEST_FAILED ->
-                        if (repeatabilityFailed) {
-                            "Enforcing with unstable context oracle"
-                        } else {
-                            "Enforcing with untrusted context oracle"
-                        }
-
-                    contextValidity?.status == SelinuxContextValidityProbe.BITPAIR_AMBIGUOUS ->
-                        "Enforcing with context split"
+                    contextValidity?.status?.isNotBlank() == true  ->
+                        "Enforcing with Root context materialized"
 
                     report.auditIntegrity?.state == SelinuxAuditIntegrityState.EXPOSED -> "Enforcing with audit exposure"
                     report.policyAnalysis?.weakness == SelinuxPolicyWeakness.SEVERE -> "Enforcing with weak policy"
@@ -110,8 +98,6 @@ class SelinuxCardModelMapper {
 
     private fun buildSummary(report: SelinuxReport): String {
         val contextValidity = contextValidityResult(report)
-        val repeatabilityFailed =
-            contextValidity?.details?.contains("repeatability failed", ignoreCase = true) == true
         return when (report.stage) {
             SelinuxStage.LOADING ->
                 "Checking sysfs, getenforce, and /proc/self/attr/current before deriving final mode with paradox logic."
@@ -155,28 +141,7 @@ class SelinuxCardModelMapper {
                             SelinuxAuditIntegrityState.CLEAR, null -> Unit
                         }
                     }
-                    val contextNote = when (contextValidity?.status) {
-                        SelinuxContextValidityProbe.BITPAIR_KSU_PRESENT ->
-                            "The context validity oracle accepted both KSU-specific contexts from the current carrier."
-
-                        SelinuxContextValidityProbe.BITPAIR_CLEAN ->
-                            "The context validity oracle rejected both KSU-specific contexts in live policy."
-
-                        SelinuxContextValidityProbe.BITPAIR_SELF_TEST_FAILED ->
-                            if (repeatabilityFailed) {
-                                "The context validity oracle repeated inconsistently, so its KSU verdict was not trusted."
-                            } else {
-                                "The context validity oracle failed its self-test, so its KSU verdict was not trusted."
-                            }
-
-                        SelinuxContextValidityProbe.BITPAIR_AMBIGUOUS ->
-                            "The context validity oracle split across the two KSU-specific contexts."
-
-                        SelinuxContextValidityProbe.BITPAIR_UNSUPPORTED ->
-                            contextValidity.details ?: "The context validity oracle stayed unavailable."
-
-                        else -> null
-                    }
+                    val contextNote = contextValidity?.status ?: ""
                     listOf(base)
                         .plus(extra)
                         .plus(contextNote?.let { listOf(it) }.orEmpty())
@@ -285,8 +250,6 @@ class SelinuxCardModelMapper {
 
     private fun buildImpactItems(report: SelinuxReport): List<SelinuxImpactItemModel> {
         val contextValidity = contextValidityResult(report)
-        val repeatabilityFailed =
-            contextValidity?.details?.contains("repeatability failed", ignoreCase = true) == true
         if (report.stage != SelinuxStage.READY) {
             return when (report.stage) {
                 SelinuxStage.LOADING -> listOf(
@@ -392,38 +355,13 @@ class SelinuxCardModelMapper {
             }
         }
 
-        when (contextValidity?.status) {
-            SelinuxContextValidityProbe.BITPAIR_KSU_PRESENT -> items += SelinuxImpactItemModel(
-                "The app_zygote carrier validated both KSU-specific contexts in live policy.",
+        if (contextValidity?.status?.isNotBlank() == true) {
+            items += SelinuxImpactItemModel(
+                "The app_zygote carrier validated root contexts in live policy.",
                 DetectorStatus.danger(),
             )
-
-            SelinuxContextValidityProbe.BITPAIR_CLEAN -> items += SelinuxImpactItemModel(
-                "The app_zygote carrier rejected both KSU-specific contexts.",
-                DetectorStatus.allClear(),
-            )
-
-            SelinuxContextValidityProbe.BITPAIR_SELF_TEST_FAILED -> items += SelinuxImpactItemModel(
-                if (repeatabilityFailed) {
-                    "The context validity oracle repeated inconsistently, so its KSU verdict was not trusted."
-                } else {
-                    "The context validity oracle failed its self-test, so its KSU verdict was not trusted."
-                },
-                DetectorStatus.warning(),
-            )
-
-            SelinuxContextValidityProbe.BITPAIR_AMBIGUOUS -> items += SelinuxImpactItemModel(
-                "The context validity oracle split across the two KSU-specific contexts.",
-                DetectorStatus.warning(),
-            )
-
-            SelinuxContextValidityProbe.BITPAIR_UNSUPPORTED -> items += SelinuxImpactItemModel(
-                contextValidity.details ?: "The context validity oracle stayed unavailable.",
-                DetectorStatus.info(InfoKind.SUPPORT),
-            )
-
-            else -> Unit
         }
+
         return items
     }
 
@@ -715,13 +653,10 @@ class SelinuxCardModelMapper {
 
     private fun methodStatus(result: SelinuxCheckResult): DetectorStatus {
         if (result.method == SelinuxContextValidityProbe.METHOD_LABEL) {
-            return when (result.status) {
-                SelinuxContextValidityProbe.BITPAIR_KSU_PRESENT -> DetectorStatus.danger()
-                SelinuxContextValidityProbe.BITPAIR_CLEAN -> DetectorStatus.allClear()
-                SelinuxContextValidityProbe.BITPAIR_AMBIGUOUS -> DetectorStatus.warning()
-                SelinuxContextValidityProbe.BITPAIR_SELF_TEST_FAILED -> DetectorStatus.warning()
-                else -> DetectorStatus.info(InfoKind.SUPPORT)
-            }
+            return if (result.status.isNotBlank())
+                DetectorStatus.danger()
+            else
+                DetectorStatus.info(InfoKind.SUPPORT)
         }
         return when {
             result.permissionDenied -> DetectorStatus.allClear()
@@ -790,9 +725,7 @@ class SelinuxCardModelMapper {
             SelinuxStage.READY -> when (mode) {
                 SelinuxMode.ENFORCING -> when {
                     auditIntegrity?.state == SelinuxAuditIntegrityState.TAMPERED -> DetectorStatus.danger()
-                    contextValidity?.status == SelinuxContextValidityProbe.BITPAIR_KSU_PRESENT -> DetectorStatus.danger()
-                    contextValidity?.status == SelinuxContextValidityProbe.BITPAIR_SELF_TEST_FAILED -> DetectorStatus.warning()
-                    contextValidity?.status == SelinuxContextValidityProbe.BITPAIR_AMBIGUOUS -> DetectorStatus.warning()
+                    contextValidity?.status?.isNotBlank() == true -> DetectorStatus.danger()
                     policyAnalysis?.weakness == SelinuxPolicyWeakness.SEVERE ||
                             policyAnalysis?.weakness == SelinuxPolicyWeakness.MODERATE ||
                             auditIntegrity?.state == SelinuxAuditIntegrityState.EXPOSED ||
